@@ -1,179 +1,130 @@
 // ============================================
-// PROXY OTIMIZADO PARA VERCEL
+// PROXY SIMPLIFICADO PARA VERCEL
 // ============================================
 
 export default async function handler(req, res) {
-    // 1. Pega a URL da query string
+    // Só aceita GET
+    if (req.method !== 'GET') {
+        return res.status(405).send('Método não permitido');
+    }
+
     const urlParam = req.query.url;
     
-    // 2. Se não tiver URL, mostra erro
     if (!urlParam) {
         return res.status(400).send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <title>Erro - Bypass</title>
-                <style>
-                    body { font-family: Arial; text-align: center; padding: 50px; background: #0a0a12; color: #fff; }
-                    h1 { color: #7b2ffc; }
-                    a { color: #7b2ffc; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <h1>❌ Erro</h1>
+            <html><body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a12;color:#fff;">
+                <h1 style="color:#7b2ffc;">❌ Erro</h1>
                 <p>Digite uma URL! Ex: /api/proxy?url=youtube.com</p>
-                <a href="/">← Voltar para o Bypass</a>
-            </body>
-            </html>
+                <a href="/" style="color:#7b2ffc;">← Voltar</a>
+            </body></html>
         `);
     }
-    
+
     try {
-        // 3. Limpa a URL
+        // Monta a URL final
         let finalUrl = urlParam;
         if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
             finalUrl = 'https://' + finalUrl;
         }
-        
-        console.log('🔄 Proxy acessando:', finalUrl);
-        
-        // 4. Faz a requisição com headers realistas
+
+        console.log('🔄 Acessando:', finalUrl);
+
+        // Faz a requisição
         const response = await fetch(finalUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            },
-            // Timeout maior
-            signal: AbortSignal.timeout(15000)
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
         });
-        
-        // 5. Pega o conteúdo
-        let text = await response.text();
-        
-        // 6. CORRIGE LINKS RELATIVOS (a parte mais importante!)
+
+        // Pega o conteúdo como texto
+        let html = await response.text();
+
+        // CORREÇÃO DE LINKS - a parte mais importante!
         const baseUrl = finalUrl.replace(/\/[^/]*$/, '/');
-        const baseDomain = finalUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-        
-        // Adiciona <base> tag no head pra resolver links relativos
-        text = text.replace(
-            /<head>/i,
-            `<head>
-            <base href="${finalUrl}/">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script>
-                // Força links a abrir no proxy
-                document.addEventListener('click', function(e) {
-                    const link = e.target.closest('a');
-                    if (link && link.href && !link.href.startsWith('javascript:')) {
-                        e.preventDefault();
-                        const url = link.href;
-                        if (!url.includes('bypasshub')) {
-                            window.open('/api/proxy?url=' + encodeURIComponent(url), '_blank');
-                        } else {
-                            window.open(url, '_blank');
-                        }
-                    }
-                });
-            </script>`
-        );
-        
-        // Corrige links relativos no HTML
-        text = text.replace(
+
+        // Corrige todos os links (src, href, action)
+        html = html.replace(
             /(src|href|action)=["']([^"']*?)["']/gi,
             (match, attr, value) => {
-                // Se já for URL absoluta, mantém
-                if (value.startsWith('http://') || value.startsWith('https://')) {
-                    // Se for do mesmo domínio, redireciona pelo proxy
-                    if (value.includes(baseDomain) && !value.includes('/api/proxy')) {
-                        return `${attr}="/api/proxy?url=${encodeURIComponent(value)}"`;
-                    }
+                // Ignora links que já são absolutos ou javascript
+                if (value.startsWith('http://') || 
+                    value.startsWith('https://') || 
+                    value.startsWith('javascript:') || 
+                    value.startsWith('#')) {
                     return match;
                 }
-                // Se for protocolo relativo (//exemplo.com)
+                // Se for protocolo relativo (//site.com)
                 if (value.startsWith('//')) {
-                    return `${attr}="/api/proxy?url=https:${value}"`;
+                    return `${attr}="https:${value}"`;
                 }
                 // Se for caminho absoluto (/caminho)
                 if (value.startsWith('/')) {
                     return `${attr}="${baseUrl}${value.substring(1)}"`;
                 }
-                // Se for caminho relativo (caminho)
-                if (!value.startsWith('#') && !value.startsWith('javascript:')) {
-                    return `${attr}="${baseUrl}${value}"`;
-                }
-                return match;
+                // Se for caminho relativo (caminho/outro)
+                return `${attr}="${baseUrl}${value}"`;
             }
         );
-        
-        // 7. Remove políticas de segurança que bloqueiam
-        text = text.replace(
-            /<meta[^>]*Content-Security-Policy[^>]*>/gi,
-            ''
+
+        // Adiciona uma base tag no head
+        html = html.replace(
+            /<head>/i,
+            `<head><base href="${finalUrl}/">`
         );
-        text = text.replace(
-            /<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi,
-            ''
+
+        // Remove políticas de segurança que quebram o proxy
+        html = html.replace(/<meta[^>]*Content-Security-Policy[^>]*>/gi, '');
+        html = html.replace(/<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
+
+        // Adiciona um script para corrigir cliques em links
+        html = html.replace(
+            /<\/body>/i,
+            `
+            <script>
+                document.addEventListener('click', function(e) {
+                    const link = e.target.closest('a');
+                    if (link && link.href && !link.href.startsWith('javascript:')) {
+                        const url = link.href;
+                        // Se não for do nosso domínio, redireciona pelo proxy
+                        if (!url.includes(window.location.origin)) {
+                            e.preventDefault();
+                            window.open('/api/proxy?url=' + encodeURIComponent(url), '_blank');
+                        }
+                    }
+                });
+            </script>
+            </body>
+            `
         );
-        
-        // 8. Manda o conteúdo de volta
-        const contentType = response.headers.get('content-type') || 'text/html';
-        res.setHeader('Content-Type', contentType);
+
+        // Retorna o HTML corrigido
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.status(200).send(text);
-        
+        res.status(200).send(html);
+
     } catch (error) {
-        console.error('❌ Erro no proxy:', error.message);
+        console.error('❌ Erro:', error.message);
         
-        // Erro específico de timeout
-        if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+        // Se for erro de timeout ou conexão
+        if (error.message.includes('timeout') || error.message.includes('fetch')) {
             return res.status(504).send(`
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <title>Timeout - Bypass</title>
-                    <style>
-                        body { font-family: Arial; text-align: center; padding: 50px; background: #0a0a12; color: #fff; }
-                        h1 { color: #f59e0b; }
-                        a { color: #7b2ffc; text-decoration: none; }
-                    </style>
-                </head>
-                <body>
-                    <h1>⏱️ Tempo esgotado</h1>
-                    <p>O site demorou muito para responder. Tente novamente.</p>
-                    <a href="/">← Voltar para o Bypass</a>
-                </body>
-                </html>
+                <html><body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a12;color:#fff;">
+                    <h1 style="color:#f59e0b;">⏱️ Tempo esgotado</h1>
+                    <p>O site demorou para responder. Tente novamente.</p>
+                    <p style="color:#6b7280;font-size:0.8rem;">Dica: sites mais simples como google.com funcionam melhor</p>
+                    <a href="/" style="color:#7b2ffc;">← Voltar</a>
+                </body></html>
             `);
         }
-        
+
         res.status(500).send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <title>Erro - Bypass</title>
-                <style>
-                    body { font-family: Arial; text-align: center; padding: 50px; background: #0a0a12; color: #fff; }
-                    h1 { color: #ef4444; }
-                    a { color: #7b2ffc; text-decoration: none; }
-                    .error { color: #6b7280; font-size: 0.9rem; margin-top: 10px; }
-                </style>
-            </head>
-            <body>
-                <h1>❌ Erro ao acessar</h1>
+            <html><body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a12;color:#fff;">
+                <h1 style="color:#ef4444;">❌ Erro ao acessar</h1>
                 <p>Não foi possível acessar: ${urlParam}</p>
-                <p class="error">Erro: ${error.message}</p>
+                <p style="color:#6b7280;font-size:0.8rem;">Erro: ${error.message}</p>
                 <br>
-                <a href="/">← Voltar para o Bypass</a>
-            </body>
-            </html>
+                <a href="/" style="color:#7b2ffc;">← Voltar para o Bypass</a>
+            </body></html>
         `);
     }
 }
