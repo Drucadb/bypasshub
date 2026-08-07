@@ -1,15 +1,9 @@
 // ============================================
-// BYPASS - SISTEMA DE PROXY (VERSÃO CORRIGIDA)
+// BYPASS - SISTEMA DE PROXY (VERSÃO SIMPLIFICADA)
 // ============================================
 
 (function() {
     'use strict';
-
-    const CONFIG = {
-        baseUrl: window.location.origin,
-        proxyPath: '/api/proxy?url=',
-        debug: false
-    };
 
     function navigateTo(url) {
         // Limpa a URL
@@ -24,19 +18,14 @@
         }
         
         // Monta a URL do proxy
-        const proxyUrl = CONFIG.baseUrl + CONFIG.proxyPath + encodeURIComponent(clean);
+        const proxyUrl = '/api/proxy?url=' + encodeURIComponent(clean);
         
         // Abre em nova aba
         window.open(proxyUrl, '_blank');
-        
-        if (CONFIG.debug) {
-            console.log('[Bypass] Redirecionando para:', proxyUrl);
-        }
     }
 
+    // Inicialização
     function init() {
-        console.log('🚀 Bypass iniciado!');
-
         // Botão "Ir"
         const goBtn = document.getElementById('goButton');
         const input = document.getElementById('urlInput');
@@ -66,6 +55,8 @@
                 }
             });
         });
+
+        console.log('🚀 Bypass pronto!');
     }
 
     if (document.readyState === 'loading') {
